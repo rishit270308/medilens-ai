@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'nodejs';
 
@@ -16,7 +16,15 @@ export async function POST(req) {
       return NextResponse.json({ error: 'GEMINI_API_KEY is not configured on server' }, { status: 500 });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash',
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.2
+      }
+    });
+
     const targetLang = language || 'English';
 
     const prompt = `
@@ -49,34 +57,23 @@ Output ONLY valid JSON matching this schema with no markdown ticks or extra text
 }
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            {
-              inlineData: {
-                mimeType: mimeType || 'image/jpeg',
-                data: imageBase64
-              }
-            }
-          ]
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType: mimeType || 'image/jpeg',
+          data: imageBase64
         }
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.2
       }
-    });
+    ]);
 
-    const parsedData = JSON.parse(response.text);
+    const responseText = result.response.text();
+    const parsedData = JSON.parse(responseText);
     return NextResponse.json(parsedData);
   } catch (err) {
     console.error('Gemini Processing Error:', err);
     return NextResponse.json(
-      { error: 'Failed to extract prescription. Please verify the image clarity and API key.' },
+      { error: 'Failed to extract prescription. Please verify image clarity and API key.' },
       { status: 500 }
     );
   }
