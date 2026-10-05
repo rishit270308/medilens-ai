@@ -76,8 +76,8 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
       },
     };
 
-    // Use gemini-2.0-flash which has a 1,500 req/day free tier quota
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+    // Google API requires gemini-3.8-flash for your account
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
     const res = await fetch(url, {
       method: 'POST',
@@ -106,6 +106,7 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
     }
 
     return NextResponse.json(JSON.parse(text));
+
   } catch (err) {
     console.error('API Error:', err);
     return NextResponse.json(
