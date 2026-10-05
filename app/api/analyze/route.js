@@ -3,8 +3,6 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const maxDuration = 45;
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export async function POST(req) {
   try {
     const { imageBase64, mimeType, language } = await req.json();
@@ -78,57 +76,36 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
       },
     };
 
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
+    // Use gemini-2.0-flash which has a 1,500 req/day free tier quota
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-    let lastErrorMsg = '';
-    const maxAttempts = 3;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(payload),
+    });
 
-    // Retry loop with delay for traffic spikes
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
-          body: JSON.stringify(payload),
-        });
+    const data = await res.json();
 
-        const data = await res.json();
-
-        if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-          let text = data.candidates[0].content.parts[0].text.trim();
-          if (text.startsWith('```json')) {
-            text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-          } else if (text.startsWith('```')) {
-            text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
-          }
-          return NextResponse.json(JSON.parse(text));
-        }
-
-        // Check if error is due to high demand or rate limit
-        const errMsg = data.error?.message || `HTTP ${res.status}`;
-        lastErrorMsg = errMsg;
-
-        if (errMsg.toLowerCase().includes('demand') || errMsg.toLowerCase().includes('quota') || res.status === 503 || res.status === 429) {
-          if (attempt < maxAttempts) {
-            await delay(1500 * attempt); // Wait 1.5s then 3s before retrying
-            continue;
-          }
-        } else {
-          throw new Error(errMsg);
-        }
-      } catch (err) {
-        lastErrorMsg = err.message;
-        if (attempt < maxAttempts) {
-          await delay(1500 * attempt);
-        }
-      }
+    if (!res.ok) {
+      throw new Error(data.error?.message || `HTTP ${res.status}`);
     }
 
-    throw new Error(lastErrorMsg || 'The model is momentarily busy. Please click decipher again.');
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) {
+      throw new Error('Gemini could not decipher document. Ensure image is clear.');
+    }
 
+    if (text.startsWith('```json')) {
+      text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (text.startsWith('```')) {
+      text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    return NextResponse.json(JSON.parse(text));
   } catch (err) {
     console.error('API Error:', err);
     return NextResponse.json(
