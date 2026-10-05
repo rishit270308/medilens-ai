@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;
@@ -9,78 +8,95 @@ export async function POST(req) {
     const { imageBase64, mimeType, language } = await req.json();
 
     if (!imageBase64) {
-      return NextResponse.json({ error: 'No image uploaded.' }, { status: 400 });
+      return NextResponse.json({ error: 'No image uploaded' }, { status: 400 });
     }
 
     const apiKey = process.env.GEMINI_API_KEY?.trim();
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'GEMINI_API_KEY is not configured on Vercel environment variables.' },
+        { error: 'GEMINI_API_KEY is missing in Vercel environment variables.' },
         { status: 500 }
       );
     }
 
-    // Strip base64 metadata header if present
+    // Clean data URI header if present
     const cleanBase64 = imageBase64.includes('base64,')
       ? imageBase64.split('base64,')[1]
       : imageBase64;
 
-    // Force stable v1 API version to prevent v1beta 404 endpoint routing errors
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel(
-      {
-        model: 'gemini-1.5-flash',
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      },
-      { apiVersion: 'v1' }
-    );
-
     const targetLang = language || 'English';
 
-    const prompt = `
-You are MediLens AI, an expert clinical decision assistant and optical prescription deciphering engine.
-Analyze this medical document, doctor's prescription, or laboratory diagnostic report.
+    const promptText = `
+You are MediLens AI, an expert medical document digitization assistant.
+Analyze this medical document or prescription image.
 
-INSTRUCTIONS:
-1. Accurately decipher all clinician handwritten notes, active pharmaceutical salts, dosage forms, strengths, and frequencies.
-2. Cross-reference drug-drug interactions, dietary alerts, and critical contraindications.
-3. Translate all explanations, purposes, and schedules into: "${targetLang}".
+Tasks:
+1. Extract patient details, clinician/clinic name, and prescription date.
+2. Read all prescribed medicines, active salts, dosages, administration intervals, and meal timings.
+3. Check for clinical safety risks, contraindications, or dietary precautions.
+4. Translate all explanations and purposes into: "${targetLang}".
 
-STRICT OUTPUT FORMAT:
-You must respond ONLY with a valid, parseable JSON object matching this schema exactly:
+You must respond ONLY with a valid JSON object strictly matching this structure:
 {
-  "doctorName": "Doctor name or Clinic if visible, else 'Not Specified'",
-  "date": "Prescription date if visible, else 'Recorded'",
+  "doctorName": "Doctor name or clinic name or 'Not Specified'",
+  "date": "Prescription date or 'Recorded'",
   "medicines": [
     {
-      "name": "Medicine name with brand or generic salt",
-      "dosage": "e.g., 500mg or 1 tablet",
-      "frequency": "e.g., Twice daily (1-0-1)",
-      "timing": "e.g., After food / Before food",
-      "purpose": "What this medication treats in ${targetLang}"
+      "name": "Medicine name or Salt",
+      "dosage": "Dosage (e.g. 500mg)",
+      "frequency": "Frequency (e.g. 1-0-1 or Twice daily)",
+      "timing": "After meals / Before meals",
+      "purpose": "Purpose of medication in ${targetLang}"
     }
   ],
   "contraindications": [
-    "Safety alert, interaction, or clinical precaution in ${targetLang}"
+    "Safety alert or precaution in ${targetLang}"
   ],
-  "summaryAudioText": "A caring, clear 2-sentence voice summary in ${targetLang} telling the patient how and when to take their medicines."
+  "summaryAudioText": "A natural 2-sentence spoken summary in ${targetLang} describing how to take the medication."
 }
+Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON only.
 `;
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: mimeType || 'image/png',
-          data: cleanBase64,
-        },
-      },
-    ]);
+    // Direct REST API call that supports all Google AI Studio key formats (including AQ...)
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-    let text = result.response.text().trim();
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: promptText },
+              {
+                inline_data: {
+                  mime_type: mimeType || 'image/png',
+                  data: cleanBase64,
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          response_mime_type: 'application/json',
+          temperature: 0.1,
+        },
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || `Google API returned status ${response.status}`);
+    }
+
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) {
+      throw new Error('Gemini returned an empty response. Verify image clarity.');
+    }
+
     if (text.startsWith('```json')) {
       text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     } else if (text.startsWith('```')) {
@@ -91,7 +107,7 @@ You must respond ONLY with a valid, parseable JSON object matching this schema e
     return NextResponse.json(parsedJson);
 
   } catch (err) {
-    console.error('Gemini Extraction Error:', err);
+    console.error('Gemini Processing Error:', err);
     return NextResponse.json(
       { error: `Gemini API Error: ${err.message || 'Processing failed'}` },
       { status: 500 }
