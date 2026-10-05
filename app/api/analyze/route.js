@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const maxDuration = 45;
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function POST(req) {
   try {
     const { imageBase64, mimeType, language } = await req.json();
@@ -76,19 +78,14 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
       },
     };
 
-    // Cascade models: if one experiences a demand spike, the next runs automatically
-    const modelCandidates = [
-      'gemini-3.8-flash',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash-latest',
-      'gemini-1.5-pro-latest'
-    ];
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
     let lastErrorMsg = '';
+    const maxAttempts = 3;
 
-    for (const model of modelCandidates) {
+    // Retry loop with delay for traffic spikes
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
         const res = await fetch(url, {
           method: 'POST',
           headers: {
@@ -110,16 +107,27 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
           return NextResponse.json(JSON.parse(text));
         }
 
-        // If the server returns high demand, loop will immediately try the next model
-        if (data.error?.message) {
-          lastErrorMsg = data.error.message;
+        // Check if error is due to high demand or rate limit
+        const errMsg = data.error?.message || `HTTP ${res.status}`;
+        lastErrorMsg = errMsg;
+
+        if (errMsg.toLowerCase().includes('demand') || errMsg.toLowerCase().includes('quota') || res.status === 503 || res.status === 429) {
+          if (attempt < maxAttempts) {
+            await delay(1500 * attempt); // Wait 1.5s then 3s before retrying
+            continue;
+          }
+        } else {
+          throw new Error(errMsg);
         }
-      } catch (e) {
-        lastErrorMsg = e.message;
+      } catch (err) {
+        lastErrorMsg = err.message;
+        if (attempt < maxAttempts) {
+          await delay(1500 * attempt);
+        }
       }
     }
 
-    throw new Error(lastErrorMsg || 'All candidate models currently busy. Please retry in a moment.');
+    throw new Error(lastErrorMsg || 'The model is momentarily busy. Please click decipher again.');
 
   } catch (err) {
     console.error('API Error:', err);
