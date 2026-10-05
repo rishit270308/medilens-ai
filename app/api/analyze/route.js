@@ -76,36 +76,51 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
       },
     };
 
-    // Target the required model
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
+    // Cascade models: if one experiences a demand spike, the next runs automatically
+    const modelCandidates = [
+      'gemini-3.8-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash-latest',
+      'gemini-1.5-pro-latest'
+    ];
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify(payload),
-    });
+    let lastErrorMsg = '';
 
-    const data = await res.json();
+    for (const model of modelCandidates) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          body: JSON.stringify(payload),
+        });
 
-    if (!res.ok) {
-      throw new Error(data.error?.message || `HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          let text = data.candidates[0].content.parts[0].text.trim();
+          if (text.startsWith('```json')) {
+            text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+          } else if (text.startsWith('```')) {
+            text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
+          }
+          return NextResponse.json(JSON.parse(text));
+        }
+
+        // If the server returns high demand, loop will immediately try the next model
+        if (data.error?.message) {
+          lastErrorMsg = data.error.message;
+        }
+      } catch (e) {
+        lastErrorMsg = e.message;
+      }
     }
 
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!text) {
-      throw new Error('Gemini could not decipher document. Ensure image is clear.');
-    }
+    throw new Error(lastErrorMsg || 'All candidate models currently busy. Please retry in a moment.');
 
-    if (text.startsWith('```json')) {
-      text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (text.startsWith('```')) {
-      text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
-
-    return NextResponse.json(JSON.parse(text));
   } catch (err) {
     console.error('API Error:', err);
     return NextResponse.json(
