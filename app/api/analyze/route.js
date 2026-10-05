@@ -76,49 +76,39 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
       },
     };
 
-    // Candidate model endpoints: targets both v1 and v1beta using official header auth
-    const endpoints = [
+    const res = await fetch(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
-      'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent',
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent',
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
-    ];
-
-    let lastErrorMsg = '';
-
-    for (const url of endpoints) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey, // Google Cloud & AI Studio Auth Header
-          },
-          body: JSON.stringify(payload),
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-          let text = data.candidates[0].content.parts[0].text.trim();
-          if (text.startsWith('```json')) {
-            text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-          } else if (text.startsWith('```')) {
-            text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
-          }
-          return NextResponse.json(JSON.parse(text));
-        } else if (data.error) {
-          lastErrorMsg = data.error.message;
-        }
-      } catch (e) {
-        lastErrorMsg = e.message;
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify(payload),
       }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error?.message || `Google API returned HTTP ${res.status}`);
     }
 
-    throw new Error(lastErrorMsg || 'Unable to connect to Gemini endpoints.');
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) {
+      throw new Error('Gemini could not parse content. Ensure the document is legible.');
+    }
+
+    if (text.startsWith('```json')) {
+      text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (text.startsWith('```')) {
+      text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    return NextResponse.json(JSON.parse(text));
 
   } catch (err) {
-    console.error('Final API Handler Error:', err);
+    console.error('API Error:', err);
     return NextResponse.json(
       { error: `Gemini API Error: ${err.message}` },
       { status: 500 }
