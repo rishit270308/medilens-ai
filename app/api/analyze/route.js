@@ -2,79 +2,62 @@ import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 export async function POST(req) {
   try {
     const { imageBase64, mimeType, language } = await req.json();
 
     if (!imageBase64) {
-      return NextResponse.json({ error: 'Image payload is missing' }, { status: 400 });
+      return NextResponse.json({ error: 'Image missing' }, { status: 400 });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
     if (!apiKey) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY is not configured on server' }, { status: 500 });
+      return NextResponse.json({ error: 'GEMINI_API_KEY is not set on Vercel' }, { status: 500 });
     }
+
+    const cleanBase64 = imageBase64.includes('base64,')
+      ? imageBase64.split('base64,')[1]
+      : imageBase64;
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
       model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.2
-      }
+      generationConfig: { responseMimeType: 'application/json' },
     });
 
     const targetLang = language || 'English';
-
-    const prompt = `
-You are MediLens AI, an expert clinical decision assistant and medical handwriting transcription system.
-Analyze this handwritten prescription or laboratory diagnostic scan.
-
-INSTRUCTIONS:
-1. Decipher all cursive handwritten medicines, salts, dosages, and administration intervals.
-2. Cross-reference drug-drug interactions and critical clinical alerts.
-3. Translate dosage explanations, purpose, and precautions into: "${targetLang}".
-
-STRICT OUTPUT FORMAT:
-Output ONLY valid JSON matching this schema with no markdown ticks or extra text:
+    const prompt = `Analyze this medical prescription/report. Return ONLY JSON matching this format:
 {
-  "doctorName": "Doctor name or Clinic if visible, else 'Not Specified'",
-  "date": "Prescription date if visible, else 'Current'",
+  "doctorName": "Doctor name or Not Specified",
+  "date": "Date or Recorded",
   "medicines": [
     {
-      "name": "Medicine Name with Brand or Salt",
-      "dosage": "e.g., 500mg or 1 tablet",
-      "frequency": "e.g., Twice daily (1-0-1)",
-      "timing": "e.g., After food / Before food",
-      "purpose": "What this medication treats in ${targetLang}"
+      "name": "Medicine name",
+      "dosage": "Dosage",
+      "frequency": "Frequency",
+      "timing": "Timing (Before/After food)",
+      "purpose": "Purpose in ${targetLang}"
     }
   ],
-  "contraindications": [
-    "Safety alert, cross-drug warning, or dietary caution in ${targetLang}"
-  ],
-  "summaryAudioText": "A clear, caring 2-sentence spoken summary of how and when to take these medicines, written in ${targetLang}."
-}
-`;
+  "contraindications": ["Precautions or warnings in ${targetLang}"],
+  "summaryAudioText": "Short 2-sentence voice summary in ${targetLang}."
+}`;
 
     const result = await model.generateContent([
       prompt,
       {
         inlineData: {
-          mimeType: mimeType || 'image/jpeg',
-          data: imageBase64
-        }
-      }
+          mimeType: mimeType || 'image/png',
+          data: cleanBase64,
+        },
+      },
     ]);
 
-    const responseText = result.response.text();
-    const parsedData = JSON.parse(responseText);
-    return NextResponse.json(parsedData);
+    const data = JSON.parse(result.response.text());
+    return NextResponse.json(data);
   } catch (err) {
-    console.error('Gemini Processing Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to extract prescription. Please verify image clarity and API key.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || 'Analysis failed' }, { status: 500 });
   }
 }
