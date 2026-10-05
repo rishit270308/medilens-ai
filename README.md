@@ -9,8 +9,8 @@
 ---
 
 ## 🌟 Submission Links
-- **GitHub Repository:** `https://github.com/Hackathoners-GCET/medilens-ai`
-- **Live Demo Link:** `https://medilens-ai.vercel.app`
+- **GitHub Repository:** `https://github.com/rishit270308/medilens-ai.git`
+- **Live Demo Link:** `https://medilens-ai-beta.vercel.app/`
 
 ---
 
