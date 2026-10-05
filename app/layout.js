@@ -1,12 +1,16 @@
+import './globals.css';
+
 export const metadata = {
-  title: 'MediLens AI — Multimodal EHR Digitizer',
-  description: 'Hackdays 2.0 Project by Team Hackathoners (GCET)',
+  title: 'MediLens AI — Clinical EHR Digitizer',
+  description: 'Multimodal EHR Digitizer, Vernacular Translator & Clinical Decision Support System',
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="antialiased min-h-screen bg-slate-50">{children}</body>
+      <body className="bg-slate-950 text-slate-100 antialiased min-h-screen">
+        {children}
+      </body>
     </html>
   );
 }
