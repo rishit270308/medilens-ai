@@ -56,40 +56,6 @@ You must respond ONLY with a valid JSON object strictly matching this structure:
 Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON only.
 `;
 
-    // 1. Ask Google what models are actually accessible to this key
-    const listRes = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models',
-      {
-        headers: { 'x-goog-api-key': apiKey },
-      }
-    );
-    const listData = await listRes.json();
-
-    if (listData.error) {
-      return NextResponse.json(
-        { error: `Google Auth Error: ${listData.error.message}` },
-        { status: 500 }
-      );
-    }
-
-    const availableModels = listData.models
-      ?.filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
-      ?.map((m) => m.name.replace('models/', '')) || [];
-
-    if (availableModels.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            'Generative Language API is not enabled for this project. Enable it at: https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Pick the best available vision model from what your project actually supports
-    const preferred = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro-vision-latest', 'gemini-pro-vision'];
-    const chosenModel = preferred.find((m) => availableModels.includes(m)) || availableModels[0];
-
     const payload = {
       contents: [
         {
@@ -110,25 +76,29 @@ Do NOT enclose the response in markdown blocks like \`\`\`json. Output raw JSON 
       },
     };
 
-    const runRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${chosenModel}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify(payload),
-      }
-    );
+    // Target the required model
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
-    const runData = await runRes.json();
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(payload),
+    });
 
-    if (!runRes.ok) {
-      throw new Error(runData.error?.message || `Model ${chosenModel} execution failed`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error?.message || `HTTP ${res.status}`);
     }
 
-    let text = runData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) {
+      throw new Error('Gemini could not decipher document. Ensure image is clear.');
+    }
+
     if (text.startsWith('```json')) {
       text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     } else if (text.startsWith('```')) {
