@@ -16,7 +16,7 @@
 
 ## 👥 Team Hackathoners
 - **Rishit Khare** — Lead Developer & AI/ML Architecture
-- **Atharva Dube & Aryan Saini** — Full-Stack Systems & UI Architecture
+- **Ritika Mishra** — Full-Stack Systems & UI Architecture
 
 ---
 
